@@ -1,0 +1,62 @@
+# Pipeline configuration. Datasets run in the order listed; a dataset may only
+# reference (referential rule) datasets declared above it.
+ingest:
+  batch_size: 10000
+
+datasets:
+  - name: customers
+    source_file: customers.csv
+    target_table: dim_customers
+    key: [customer_id]
+    publish: {mode: upsert}                # SCD type 1 snapshot
+    columns:
+      - {name: customer_id,  type: string,    nullable: false, description: "Business key, e.g. C0000001"}
+      - {name: email,        type: string,    nullable: false, normalize: lower, description: "Contact email (lower-cased)"}
+      - {name: full_name,    type: string,    description: "Display name"}
+      - {name: country_code, type: string,    normalize: upper, description: "ISO-3166 alpha-2"}
+      - {name: signup_ts,    type: timestamp, nullable: false, description: "UTC signup time"}
+      - {name: credit_limit, type: number,    description: "Credit limit, 0..50000"}
+    derived:
+      - {name: email_domain, type: string, expr: "substr(email, instr(email, '@') + 1)"}
+    rules:
+      - {id: customers_unique_id,       type: unique, columns: [customer_id], keep: first, severity: error}
+      - {id: customers_email_format,    type: custom_sql, expression: "email LIKE '%_@_%.__%'", severity: error}
+      - {id: customers_signup_not_future, type: range, column: signup_ts, max: "$as_of", severity: error}
+      - {id: customers_credit_range,    type: range, column: credit_limit, min: 0, max: 50000, severity: error}
+      - {id: customers_country_known,   type: accepted_values, column: country_code,
+         values: [US, GB, DE, FR, IN, BR, JP, AU, CA, ZA], severity: warn}
+      - {id: customers_reject_rate,     type: max_reject_rate, max_rate: 0.25, severity: error}
+
+  - name: orders
+    source_file: orders.csv
+    target_table: fact_orders_current      # latest version per order_id
+    key: [order_id]
+    publish: {mode: event_history, history_table: fact_order_events, version_column: updated_at}
+    reconcile_sum: [total_amount]
+    columns:
+      - {name: order_id,     type: string,    nullable: false, description: "Business key, e.g. O00000001"}
+      - {name: customer_id,  type: string,    nullable: false, description: "FK to customers.customer_id"}
+      - {name: order_status, type: string,    nullable: false, normalize: lower}
+      - {name: quantity,     type: integer,   nullable: false}
+      - {name: unit_price,   type: number,    nullable: false}
+      - {name: total_amount, type: number,    nullable: false, description: "Should equal quantity * unit_price"}
+      - {name: order_ts,     type: timestamp, nullable: false, description: "When the order was placed (UTC)"}
+      - {name: updated_at,   type: timestamp, nullable: false, description: "Event/version time (UTC)"}
+    derived:
+      - {name: order_date, type: date,   expr: "substr(order_ts, 1, 10)"}
+      - {name: event_id,   type: string, expr: "sha1_16(order_id, updated_at)"}
+    rules:
+      - {id: orders_unique_event,        type: unique, columns: [order_id, updated_at], keep: first, severity: error}
+      - {id: orders_customer_exists,     type: referential, column: customer_id,
+         ref_dataset: customers, ref_column: customer_id, severity: error}
+      - {id: orders_status_valid,        type: accepted_values, column: order_status,
+         values: [pending, paid, shipped, cancelled, refunded], severity: error}
+      - {id: orders_quantity_range,      type: range, column: quantity, min: 1, max: 100, severity: error}
+      - {id: orders_unit_price_range,    type: range, column: unit_price, min: 0.01, max: 10000, severity: error}
+      - {id: orders_total_non_negative,  type: range, column: total_amount, min: 0, severity: error}
+      - {id: orders_total_matches,       type: custom_sql,
+         expression: "abs(total_amount - quantity * unit_price) <= 0.01", severity: error}
+      - {id: orders_updated_after_placed, type: custom_sql, expression: "updated_at >= order_ts", severity: error}
+      - {id: orders_placed_not_future,   type: range, column: order_ts, max: "$as_of", severity: error}
+      - {id: orders_freshness,           type: freshness, column: updated_at, max_age_hours: 48, severity: error}
+      - {id: orders_reject_rate,         type: max_reject_rate, max_rate: 0.25, severity: error}

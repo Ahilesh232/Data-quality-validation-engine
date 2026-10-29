@@ -1,0 +1,9 @@
+﻿,dataset,rule_id,severity,source_file,source_row,record_key,reason,detected_at
+0,customers,customers_email_format,error,customers.csv,8,C0000008,violates: email LIKE '%_@_%.__%',2026-10-28T08:12:43Z
+1,customers,customers_signup_not_future,error,customers.csv,16,C0000002,"column 'signup_ts' outside [-inf, $as_of]",2026-10-28T08:12:43Z
+2,customers,customers_unique_id,error,customers.csv,18,C0000037,duplicate key (customer_id); kept the first occurrence,2026-10-28T08:12:43Z
+3,customers,customers_credit_range,error,customers.csv,23,C0000018,"column 'credit_limit' outside [0, 50000]",2026-10-28T08:12:43Z
+4,customers,schema_malformed_row,error,customers.csv,26,,"expected 6 fields, found 7",2026-10-28T08:12:43Z
+5,customers,schema_type,error,customers.csv,28,C0000009,column 'credit_limit': cannot cast 'abc' to number,2026-10-28T08:12:43Z
+6,customers,customers_email_required,error,customers.csv,30,C0000041,column 'email' is null,2026-10-28T08:12:43Z
+7,customers,customers_country_known,warn,customers.csv,50,C0000016,column 'country_code' not in accepted values,2026-10-28T08:12:43Z
